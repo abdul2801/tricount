@@ -362,44 +362,58 @@
 
   </section>
 
-  </div> <!-- end content area -->
-</main>
+  <!-- ══════════════════════════════
+       TAB: EXPLORE (D3 sunburst + treemap)
+  ═══════════════════════════════ -->
+  <section id="tab-explore" class="tab-content hidden fade-in">
 
-<!-- ═══════════════════════════════════════════
-     TAB: EXPLORE (D3 sunburst + treemap)
-════════════════════════════════════════════ -->
-<section id="tab-explore" class="tab-content hidden fade-in">
+  <!-- Header -->
+  <div class="mb-5 mt-1">
+    <h1 class="text-2xl font-light text-zinc-100 tracking-tight mb-1">Explore</h1>
+    <p class="text-xs text-zinc-500">Drill into your spending visually</p>
+  </div>
 
-  <!-- Controls row -->
-  <div class="flex flex-wrap items-center gap-3 mb-4 mt-1">
-    <div class="flex gap-1.5 overflow-x-auto no-scrollbar">
-      <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all" data-group="cat-person">Category &rsaquo; Person</button>
-      <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all" data-group="person-cat">Person &rsaquo; Category</button>
-      <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all" data-group="month-cat">Month &rsaquo; Category</button>
-      <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all" data-group="month-person">Month &rsaquo; Person</button>
-    </div>
-    <div class="flex gap-1.5 ml-auto flex-shrink-0">
-      <button id="vizSunburst" class="viz-toggle text-xs font-semibold px-3 py-1.5 rounded-full border border-brand bg-brand/20 text-brand-light transition-all">&#9728; Sunburst</button>
-      <button id="vizTreemap"  class="viz-toggle text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all">&#9638; Treemap</button>
+  <!-- Controls card -->
+  <div class="bg-surface-card border border-zinc-800 rounded-2xl p-4 mb-5">
+    <div class="flex flex-wrap gap-4 items-start justify-between">
+      <div>
+        <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Group by</p>
+        <div class="flex flex-wrap gap-1.5">
+          <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface text-zinc-400 transition-all" data-group="cat-person">Category › Person</button>
+          <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface text-zinc-400 transition-all" data-group="person-cat">Person › Category</button>
+          <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface text-zinc-400 transition-all" data-group="month-cat">Month › Category</button>
+          <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface text-zinc-400 transition-all" data-group="month-person">Month › Person</button>
+        </div>
+      </div>
+      <div>
+        <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">View</p>
+        <div class="flex gap-1.5">
+          <button id="vizSunburst" class="viz-toggle text-xs font-semibold px-3 py-1.5 rounded-full border border-brand bg-brand/20 text-brand-light transition-all">☀ Sunburst</button>
+          <button id="vizTreemap"  class="viz-toggle text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface text-zinc-400 transition-all">▦ Treemap</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- Breadcrumb -->
-  <div id="exploreBreadcrumb" class="flex items-center gap-1 text-xs mb-3 min-h-[22px] flex-wrap"></div>
+  <div id="exploreBreadcrumb" class="flex items-center gap-1 text-xs mb-3 min-h-[22px] flex-wrap px-1"></div>
 
-  <!-- Viz containers -->
-  <div class="bg-surface-card border border-zinc-800 rounded-2xl overflow-hidden mb-4 relative">
-    <div id="sunburstWrap" class="flex justify-center items-center py-4"></div>
+  <!-- Viz card -->
+  <div class="bg-surface-card border border-zinc-800 rounded-2xl overflow-hidden mb-5">
+    <div id="sunburstWrap" class="flex justify-center items-center p-4"></div>
     <div id="treemapWrap"  class="hidden p-4"></div>
   </div>
 
   <!-- Detail panel -->
-  <div id="exploreDetail" class="hidden bg-surface-card border border-zinc-800 rounded-2xl p-4 mb-4">
-    <p id="exploreDetailTitle" class="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3"></p>
-    <div id="exploreDetailList" class="flex flex-col gap-2.5"></div>
+  <div id="exploreDetail" class="hidden bg-surface-card border border-zinc-800 rounded-2xl p-4 mb-5">
+    <p id="exploreDetailTitle" class="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-4"></p>
+    <div id="exploreDetailList" class="flex flex-col gap-3"></div>
   </div>
 
-</section>
+  </section>
+
+  </div> <!-- end content area -->
+</main>
 <!-- ═══════════════════════════════════════════
      BOTTOM NAV
 ════════════════════════════════════════════ -->
@@ -978,7 +992,8 @@ function renderSunburst() {
   const W = Math.min(wrap.clientWidth || 500, 540);
   const R = W / 2;
 
-  const color = d3.scaleOrdinal(PALETTE);
+  const EX_COLORS = ['#f97316','#06b6d4','#a855f7','#22c55e','#f43f5e','#3b82f6','#eab308','#ec4899','#14b8a6','#fb923c','#818cf8','#4ade80'];
+  const color = d3.scaleOrdinal(EX_COLORS);
   const root  = d3.hierarchy(EX.buildHierarchy(getFilteredTx()))
     .sum(d => d.tx ? d.value : 0)
     .sort((a,b) => b.value - a.value);
@@ -1121,7 +1136,8 @@ function renderTreemap() {
   const W = wrap.clientWidth || 600;
   const H = Math.max(340, Math.round(W * 0.58));
 
-  const color = d3.scaleOrdinal(PALETTE);
+  const EX_COLORS = ['#f97316','#06b6d4','#a855f7','#22c55e','#f43f5e','#3b82f6','#eab308','#ec4899','#14b8a6','#fb923c','#818cf8','#4ade80'];
+  const color = d3.scaleOrdinal(EX_COLORS);
   const root  = d3.hierarchy(EX.buildHierarchy(getFilteredTx()))
     .sum(d => d.tx ? d.value : 0)
     .sort((a,b) => b.value - a.value);

@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Tricount</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: {
+              DEFAULT: '#18181b',
+              card:    '#27272a',
+              raised:  '#3f3f46',
+            },
+            brand: {
+              DEFAULT: '#8b5cf6',
+              light:   '#a78bfa',
+              dim:     'rgba(139,92,246,0.15)',
+            },
+          },
+          fontFamily: {
+            sans: ['-apple-system','BlinkMacSystemFont','Segoe UI','Roboto','sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* Safe area insets for notched phones */
+    .pb-safe { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
+    .bottom-safe { bottom: env(safe-area-inset-bottom, 0); }
+
+    /* Thin scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: #52525b; border-radius: 4px; }
+
+    /* Slide-up drawer */
+    #filterDrawer {
+      transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+      transform: translateY(100%);
+    }
+    #filterDrawer.open { transform: translateY(0); }
+    #drawerBackdrop { transition: opacity 0.25s ease; }
+
+    /* Active tab indicator */
+    .nav-btn.active svg { stroke: #8b5cf6; }
+    .nav-btn.active span { color: #8b5cf6; }
+
+    /* Chip toggle */
+    .chip.active {
+      background-color: rgba(139,92,246,0.25);
+      border-color: #8b5cf6;
+      color: #a78bfa;
+    }
+
+    /* Animate number count-up */
+    @keyframes fadein { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+    .fade-in { animation: fadein 0.4s ease both; }
+
+    /* Hide the scrollbar on the page-tabs scroller */
+    .no-scrollbar::-webkit-scrollbar { display:none; }
+    .no-scrollbar { -ms-overflow-style:none; scrollbar-width:none; }
+
+    /* Tree styles */
+    .tree-node { transition: all 0.2s ease; }
+    .tree-children {
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 0.3s cubic-bezier(0.4,0,0.2,1);
+    }
+    .tree-children.open { max-height: 9999px; }
+    .tree-chevron { transition: transform 0.25s ease; }
+    .tree-node[aria-expanded="true"] .tree-chevron { transform: rotate(90deg); }
+    .group-btn.active {
+      background: rgba(139,92,246,0.2);
+      border-color: #8b5cf6;
+      color: #a78bfa;
+    }
+  </style>
+</head>
+<body class="bg-surface text-zinc-100 font-sans min-h-screen">
+
+<!-- ═══════════════════════════════════════════
+     TOP HEADER
+════════════════════════════════════════════ -->
+<header class="sticky top-0 z-40 bg-surface/90 backdrop-blur border-b border-zinc-800">
+  <div class="flex items-center justify-between px-4 h-14 max-w-7xl mx-auto">
+    <div class="flex items-center gap-2">
+      <span class="text-brand text-xl">💜</span>
+      <span class="font-semibold tracking-tight text-zinc-100">{{ summary.title or 'Tricount' }}</span>
+    </div>
+    <button id="filterToggle"
+      class="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 bg-surface-card border border-zinc-700 px-3 py-1.5 rounded-full hover:border-brand transition-colors">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2"/>
+      </svg>
+      Filters
+    </button>
+  </div>
+</header>
+
+
+<!-- ═══════════════════════════════════════════
+     MAIN SCROLLABLE CONTENT
+════════════════════════════════════════════ -->
+<main class="max-w-7xl mx-auto px-4 pb-28 lg:pb-8 lg:flex lg:gap-6 lg:pt-4">
+
+  <!-- ── SIDEBAR NAV (desktop only) ── -->
+  <aside class="hidden lg:flex flex-col gap-1 w-48 flex-shrink-0 pt-1 sticky top-20 self-start">
+    <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600 px-3 mb-2">Navigation</p>
+    {% for tab, icon, label in [
+      ('overview',     'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', 'Overview'),
+      ('charts',       'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z', 'Charts'),
+      ('transactions', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2', 'Expenses'),
+      ('explore',      'M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z', 'Explore'),
+    ] %}
+    <button class="nav-btn sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all text-left {% if loop.first %}bg-zinc-800 text-zinc-100{% endif %}"
+            data-tab="{{ tab }}">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="{{ icon }}"/>
+      </svg>
+      {{ label }}
+    </button>
+    {% endfor %}
+  </aside>
+
+  <!-- ── CONTENT AREA ── -->
+  <div class="flex-1 min-w-0">
+
+  <!-- ── PAGE TABS (mobile only) ── -->
+  <div class="flex gap-1 mt-4 mb-5 overflow-x-auto no-scrollbar lg:hidden">
+    {% for tab in [('overview','Overview'),('charts','Charts'),('transactions','Transactions'),('explore','Explore')] %}
+    <button
+      class="page-tab flex-shrink-0 text-xs font-semibold px-4 py-2 rounded-full transition-all
+             {% if loop.first %}bg-brand text-white{% else %}bg-surface-card text-zinc-400 hover:text-zinc-100{% endif %}"
+      data-tab="{{ tab[0] }}">
+      {{ tab[1] }}
+    </button>
+    {% endfor %}
+  </div>
+
+
+  <!-- ══════════════════════════════
+       TAB: OVERVIEW
+  ═══════════════════════════════ -->
+  <section id="tab-overview" class="tab-content fade-in">
+
+    <!-- STAT CARDS -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      {% set stats = [
+        ('Total Spent',   '₹' ~ (statistics.total_spent | int),          '💰', 'stat-total'),
+        ('Transactions',  statistics.number_of_transactions,               '🧾', 'stat-count'),
+        ('Avg. Spend',    '₹' ~ (statistics.average_transaction | int),   '📊', 'stat-avg'),
+        ('Largest',       '₹' ~ (statistics.largest_transaction | int),   '🔝', 'stat-largest'),
+      ] %}
+      {% for label, value, icon, sid in stats %}
+      <div class="bg-surface-card border border-zinc-800 rounded-2xl p-4 flex flex-col gap-1">
+        <span class="text-lg">{{ icon }}</span>
+        <span id="{{ sid }}" class="text-xl font-bold text-brand-light tracking-tight">{{ value }}</span>
+        <span class="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">{{ label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- MEMBERS + CATEGORIES: side by side on desktop -->
+    <div class="lg:grid lg:grid-cols-2 lg:gap-5">
+
+    <!-- MEMBERS -->
+    <div class="bg-surface-card border border-zinc-800 rounded-2xl p-4 mb-5">
+      <h2 class="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-4">Members</h2>
+      <div id="memberBars" class="flex flex-col gap-3">
+        {% set max_spend = member_spending[0].amount if member_spending else 1 %}
+        {% set member_emojis = ['🧑','👩','👦','👧','🧔','👱','🧒','👴','👵','🧕'] %}
+        {% for m in member_spending %}
+        <div class="flex items-center gap-3">
+          <span class="text-xl w-8 text-center">{{ member_emojis[loop.index0 % member_emojis|length] }}</span>
+          <div class="flex-1 min-w-0">
+            <div class="flex justify-between items-baseline mb-1">
+              <span class="text-sm font-semibold truncate">{{ m.name }}</span>
+              <span class="text-sm font-bold text-brand-light ml-2 flex-shrink-0">₹{{ m.amount | int }}</span>
+            </div>
+            <div class="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+              <div class="h-full bg-brand rounded-full"
+                   style="width: {{ ((m.amount / max_spend) * 100) | round(1) }}%"></div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- TOP CATEGORIES -->
+    <div class="bg-surface-card border border-zinc-800 rounded-2xl p-4 mb-5">
+      <h2 class="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-4">Top Categories</h2>
+      <div id="categoryBars" class="flex flex-col gap-3">
+        {% set total_cat = namespace(val=0) %}
+        {% for c in category_breakdown %}{% set total_cat.val = total_cat.val + c.amount %}{% endfor %}
+        {% set cat_colors = ['#8b5cf6','#06b6d4','#f59e0b','#10b981','#ef4444','#ec4899','#3b82f6','#84cc16'] %}
+        {% for cat in category_breakdown[:6] %}
+        <div class="flex items-center gap-3">
+          <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:{{ cat_colors[loop.index0 % cat_colors|length] }}"></span>
+          <div class="flex-1 min-w-0">
+            <div class="flex justify-between items-baseline mb-1">
+              <span class="text-sm truncate">{{ cat.name }}</span>
+              <span class="text-sm font-bold text-zinc-300 ml-2 flex-shrink-0">₹{{ cat.amount | int }}</span>
+            </div>
+            <div class="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+              <div class="h-full rounded-full"
+                   style="width:{{ ((cat.amount / total_cat.val) * 100) | round(1) if total_cat.val > 0 else 0 }}%;
+                          background:{{ cat_colors[loop.index0 % cat_colors|length] }}"></div>
+            </div>
+          </div>
+          <span class="text-[11px] text-zinc-500 flex-shrink-0 w-10 text-right">
+            {{ ((cat.amount / total_cat.val) * 100) | round(0) | int if total_cat.val > 0 else 0 }}%
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+    </div> <!-- end categories card -->
+    </div> <!-- end 2-col grid -->
+
+  </section>
+
+
+  <!-- ══════════════════════════════
+       TAB: CHARTS
+  ═══════════════════════════════ -->
+  <section id="tab-charts" class="tab-content hidden fade-in">
+
+    <!-- TIMELINE CHART: full width -->
+    <div class="bg-surface-card border border-zinc-800 rounded-2xl p-4 mb-5">
+      <h2 class="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-1">Spend Over Time</h2>
+      <p class="text-[11px] text-zinc-600 mb-4">Last 12 months</p>
+      <div class="relative h-44 lg:h-56">
+        <canvas id="timelineChart"></canvas>
+      </div>
+    </div>
+
+    <!-- DONUT + MEMBER BAR: side by side on desktop -->
+    <div class="lg:grid lg:grid-cols-2 lg:gap-5">
+
+    <!-- CATEGORY DONUT -->
+    <div class="bg-surface-card border border-zinc-800 rounded-2xl p-4 mb-5">
+      <h2 class="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-4">By Category</h2>
+      <div class="flex items-center gap-4">
+        <div class="relative w-40 h-40 flex-shrink-0">
+          <canvas id="donutChart"></canvas>
+          <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span class="text-[10px] text-zinc-500 uppercase tracking-widest">Total</span>
+            <span id="donutTotal" class="text-sm font-bold text-brand-light">₹{{ statistics.total_spent | int }}</span>
+          </div>
+        </div>
+        <div id="donutLegend" class="flex-1 flex flex-col gap-2">
+          {% for cat in category_breakdown[:6] %}
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ cat_colors[loop.index0 % cat_colors|length] if cat_colors is defined else '#8b5cf6' }}"></span>
+            <span class="text-xs text-zinc-400 truncate">{{ cat.name }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- MEMBER BAR CHART -->
+    <div class="bg-surface-card border border-zinc-800 rounded-2xl p-4 mb-5">
+      <h2 class="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-4">Member Spending</h2>
+      <div class="relative h-44 lg:h-56">
+        <canvas id="memberChart"></canvas>
+      </div>
+    </div>
+
+    </div> <!-- end 2-col charts grid -->
+
+  </section>
+
+
+  <!-- ══════════════════════════════
+       TAB: CHARTS
+  ═══════════════════════════════ -->
+  <section id="tab-transactions" class="tab-content hidden fade-in">
+
+    <div id="txCount" class="text-xs text-zinc-500 mb-3">
+      {{ transactions | length }} transactions
+    </div>
+
+    <div id="transactionsList" class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {% if transactions %}
+        {% set cat_emoji_map = {
+          'FOOD': '🍽️', 'FOOD_AND_DRINK': '🍔', 'HOUSING': '🏠',
+          'ENTERTAINMENT': '🎮', 'TRANSPORT': '🚕', 'SHOPPING': '🛍️',
+          'UTILITIES': '💡', 'TRAVEL': '✈️', 'GROCERIES': '🛒',
+          'HEALTHCARE': '🏥', 'GENERAL': '💸', 'UNCATEGORIZED': '📝',
+        } %}
+        {% for tx in transactions %}
+        <div class="transaction-item bg-surface-card border border-zinc-800 rounded-2xl p-4 transition-all"
+             data-uuid="{{ tx.uuid }}"
+             data-category="{{ tx.category }}"
+             data-payer="{{ tx.payer }}"
+             data-date="{{ tx.date }}">
+
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-start gap-3 flex-1 min-w-0">
+              <span class="text-2xl mt-0.5 flex-shrink-0">{{ cat_emoji_map.get(tx.category, tx.emoji) }}</span>
+              <div class="flex-1 min-w-0">
+                <p class="font-semibold text-sm leading-snug text-zinc-100 truncate">{{ tx.description }}</p>
+                <p class="text-xs text-zinc-500 mt-0.5">
+                  <span class="text-zinc-400">{{ tx.payer }}</span>
+                  <span class="mx-1">·</span>
+                  {{ tx.date }}
+                </p>
+              </div>
+            </div>
+            <div class="flex-shrink-0 flex flex-col items-end">
+              <span class="text-base font-bold text-brand-light">₹{{ tx.amount | int }}</span>
+              <span class="mt-1 text-[9px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full
+                           bg-brand-dim text-brand-light border border-brand/30">
+                {{ tx.category | replace('_', ' ') }}
+              </span>
+            </div>
+          </div>
+
+          {% if tx.allocations %}
+          <details class="mt-3 group">
+            <summary class="text-[11px] font-semibold text-zinc-500 cursor-pointer
+                            list-none flex items-center gap-1 hover:text-zinc-300 transition-colors">
+              <svg class="w-3 h-3 transition-transform group-open:rotate-90" fill="none"
+                   stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+              </svg>
+              Split ({{ tx.allocations | length }})
+            </summary>
+            <div class="mt-2 flex flex-col gap-1 pt-2 border-t border-zinc-700/60">
+              {% for split in tx.allocations %}
+              <div class="flex justify-between text-xs">
+                <span class="text-zinc-400">{{ split.member }}</span>
+                <span class="text-zinc-300 font-semibold">₹{{ split.amount | int }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+
+        </div>
+        {% endfor %}
+      {% else %}
+      <div class="text-center py-16 text-zinc-600">
+        <span class="text-4xl block mb-3">📭</span>
+        <p class="text-sm">No transactions yet</p>
+      </div>
+      {% endif %}
+    </div>
+
+  </section>
+
+  </div> <!-- end content area -->
+</main>
+
+<!-- ═══════════════════════════════════════════
+     TAB: EXPLORE (D3 sunburst + treemap)
+════════════════════════════════════════════ -->
+<section id="tab-explore" class="tab-content hidden fade-in">
+
+  <!-- Controls row -->
+  <div class="flex flex-wrap items-center gap-3 mb-4 mt-1">
+    <div class="flex gap-1.5 overflow-x-auto no-scrollbar">
+      <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all" data-group="cat-person">Category &rsaquo; Person</button>
+      <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all" data-group="person-cat">Person &rsaquo; Category</button>
+      <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all" data-group="month-cat">Month &rsaquo; Category</button>
+      <button class="group-btn flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all" data-group="month-person">Month &rsaquo; Person</button>
+    </div>
+    <div class="flex gap-1.5 ml-auto flex-shrink-0">
+      <button id="vizSunburst" class="viz-toggle text-xs font-semibold px-3 py-1.5 rounded-full border border-brand bg-brand/20 text-brand-light transition-all">&#9728; Sunburst</button>
+      <button id="vizTreemap"  class="viz-toggle text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700 bg-surface-card text-zinc-400 transition-all">&#9638; Treemap</button>
+    </div>
+  </div>
+
+  <!-- Breadcrumb -->
+  <div id="exploreBreadcrumb" class="flex items-center gap-1 text-xs mb-3 min-h-[22px] flex-wrap"></div>
+
+  <!-- Viz containers -->
+  <div class="bg-surface-card border border-zinc-800 rounded-2xl overflow-hidden mb-4 relative">
+    <div id="sunburstWrap" class="flex justify-center items-center py-4"></div>
+    <div id="treemapWrap"  class="hidden p-4"></div>
+  </div>
+
+  <!-- Detail panel -->
+  <div id="exploreDetail" class="hidden bg-surface-card border border-zinc-800 rounded-2xl p-4 mb-4">
+    <p id="exploreDetailTitle" class="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3"></p>
+    <div id="exploreDetailList" class="flex flex-col gap-2.5"></div>
+  </div>
+
+</section>
+<!-- ═══════════════════════════════════════════
+     BOTTOM NAV
+════════════════════════════════════════════ -->
+<nav class="fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur border-t border-zinc-800 pb-safe">
+  <div class="max-w-7xl mx-auto flex justify-around items-center h-14 lg:hidden">
+    {% for tab, icon, label in [
+      ('overview',     '<path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>', 'Home'),
+      ('charts',       '<path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>', 'Charts'),
+      ('transactions', '<path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>', 'Expenses'),
+      ('explore',      '<path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>', 'Explore'),
+    ] %}
+    <button class="nav-btn flex flex-col items-center gap-0.5 px-4 py-1 {% if loop.first %}active{% endif %}"
+            data-tab="{{ tab }}">
+      <svg class="w-5 h-5 stroke-zinc-500 transition-colors" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        {{ icon | safe }}
+      </svg>
+      <span class="text-[10px] font-semibold text-zinc-500 transition-colors">{{ label }}</span>
+    </button>
+    {% endfor %}
+  </div>
+</nav>
+
+
+<!-- ═══════════════════════════════════════════
+     FILTER DRAWER
+════════════════════════════════════════════ -->
+<div id="drawerBackdrop"
+     class="fixed inset-0 z-50 bg-black/60 opacity-0 pointer-events-none backdrop-blur-sm"></div>
+
+<div id="filterDrawer"
+     class="fixed bottom-0 left-0 right-0 z-50 bg-surface-card border-t border-zinc-700 rounded-t-3xl max-h-[80vh] overflow-y-auto">
+  <div class="max-w-7xl mx-auto px-4 pt-4 pb-8">
+
+    <!-- Handle -->
+    <div class="w-10 h-1 bg-zinc-600 rounded-full mx-auto mb-4"></div>
+
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-sm font-bold">Filters</h2>
+      <button id="clearFilters" class="text-xs text-brand-light font-semibold">Clear all</button>
+    </div>
+
+    <!-- Date Range -->
+    <div class="mb-5">
+      <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Date Range</p>
+
+      <!-- Quick presets -->
+      <div class="flex flex-wrap gap-2 mb-3" id="datePresets">
+        {% for label, key in [('Today','today'),('7 Days','7d'),('30 Days','30d'),('90 Days','90d'),('This Month','month'),('All Time','all')] %}
+        <button class="date-preset chip text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700
+                       bg-surface text-zinc-400 transition-all"
+                data-preset="{{ key }}">{{ label }}</button>
+        {% endfor %}
+      </div>
+
+      <!-- Manual inputs -->
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs text-zinc-500 mb-1 block" for="dateFrom">From</label>
+          <input type="date" id="dateFrom"
+                 style="-webkit-text-fill-color:#e4e4e7; color-scheme:dark;"
+                 class="w-full bg-surface border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100
+                        focus:outline-none focus:border-brand transition-colors" />
+        </div>
+        <div>
+          <label class="text-xs text-zinc-500 mb-1 block" for="dateTo">To</label>
+          <input type="date" id="dateTo"
+                 style="-webkit-text-fill-color:#e4e4e7; color-scheme:dark;"
+                 class="w-full bg-surface border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100
+                        focus:outline-none focus:border-brand transition-colors" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Category Chips -->
+    <div class="mb-5">
+      <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Category</p>
+      <div class="flex flex-wrap gap-2" id="categoryChips">
+        {% for category in categories %}
+        <button class="chip text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700
+                       bg-surface text-zinc-400 transition-all"
+                data-category="{{ category }}">
+          {{ category | replace('_', ' ') | title }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Member Chips -->
+    <div class="mb-5">
+      <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Payer</p>
+      <div class="flex flex-wrap gap-2" id="memberChips">
+        {% for member in members %}
+        <button class="chip text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-700
+                       bg-surface text-zinc-400 transition-all"
+                data-member="{{ member.name }}">
+          {{ member.name }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <button id="applyFilters"
+            class="w-full bg-brand text-white text-sm font-semibold py-3 rounded-2xl hover:bg-brand/90 transition-colors">
+      Apply Filters
+    </button>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     SCRIPTS
+════════════════════════════════════════════ -->
+<script>
+// ── RAW DATA FROM FLASK ────────────────────────────────────
+const ALL_TX = {{ transactions | tojson }};
+const MEMBER_EMOJIS = ['🧑','👩','👦','👧','🧔','👱','🧒','👴','👵','🧕'];
+const PALETTE = [
+  '#f97316', // orange
+  '#06b6d4', // cyan
+  '#a855f7', // purple
+  '#22c55e', // green
+  '#f43f5e', // rose
+  '#3b82f6', // blue
+  '#eab308', // yellow
+  '#ec4899', // pink
+  '#14b8a6', // teal
+  '#8b5cf6', // violet
+  '#ef4444', // red
+  '#84cc16', // lime
+];
+
+// Build category display-name lookup from server data
+const CAT_NAME = {};
+{{ category_breakdown | tojson }}.forEach(c => { CAT_NAME[c.category] = c.name; });
+
+// ── CHART INSTANCES ────────────────────────────────────────
+let timelineChart = null, donutChart = null, memberChart = null;
+let chartsCreated = false;
+
+// ── TAB SWITCHING ──────────────────────────────────────────
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-content').forEach(s => s.classList.add('hidden'));
+  const target = document.getElementById('tab-' + tabId);
+  if (target) {
+    target.classList.remove('hidden');
+    target.classList.remove('fade-in');
+    void target.offsetWidth;
+    target.classList.add('fade-in');
+  }
+  document.querySelectorAll('.page-tab').forEach(t => {
+    const on = t.dataset.tab === tabId;
+    t.classList.toggle('bg-brand', on);
+    t.classList.toggle('text-white', on);
+    t.classList.toggle('bg-surface-card', !on);
+    t.classList.toggle('text-zinc-400', !on);
+  });
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    const on = b.dataset.tab === tabId;
+    // Bottom nav SVG color
+    const svg = b.querySelector('svg');
+    const span = b.querySelector('span');
+    if (svg) svg.style.stroke = on ? '#8b5cf6' : '';
+    if (span) span.style.color = on ? '#8b5cf6' : '';
+    // Sidebar nav button highlight
+    if (b.classList.contains('sidebar-nav-btn')) {
+      b.classList.toggle('bg-zinc-800', on);
+      b.classList.toggle('text-zinc-100', on);
+      b.classList.toggle('text-zinc-400', !on);
+    }
+  });
+  if (tabId === 'charts') {
+    ensureChartsCreated();
+    updateCharts(getFilteredTx());
+  }
+  if (tabId === 'explore') {
+    exRender();
+  }
+}
+
+document.querySelectorAll('.page-tab, .nav-btn').forEach(btn =>
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+
+// ── FILTER DRAWER ──────────────────────────────────────────
+const drawer   = document.getElementById('filterDrawer');
+const backdrop = document.getElementById('drawerBackdrop');
+
+function openDrawer() {
+  drawer.classList.add('open');
+  backdrop.style.opacity = '1';
+  backdrop.style.pointerEvents = 'auto';
+  document.body.style.overflow = 'hidden';
+}
+function closeDrawer() {
+  drawer.classList.remove('open');
+  backdrop.style.opacity = '0';
+  backdrop.style.pointerEvents = 'none';
+  document.body.style.overflow = '';
+}
+
+document.getElementById('filterToggle').addEventListener('click', openDrawer);
+backdrop.addEventListener('click', closeDrawer);
+
+// ── DATE PRESETS ───────────────────────────────────────────
+function toISO(d) { return d.toISOString().split('T')[0]; }
+
+function applyPreset(key) {
+  const now = new Date();
+  let from, to = toISO(now);
+  switch (key) {
+    case 'today': from = toISO(now); break;
+    case '7d':    from = toISO(new Date(now - 6  * 86400000)); break;
+    case '30d':   from = toISO(new Date(now - 29 * 86400000)); break;
+    case '90d':   from = toISO(new Date(now - 89 * 86400000)); break;
+    case 'month': from = toISO(new Date(now.getFullYear(), now.getMonth(), 1)); break;
+    case 'all':   from = '2000-01-01'; to = '2099-12-31'; break;
+    default:      from = toISO(new Date(now - 29 * 86400000));
+  }
+  document.getElementById('dateFrom').value = from;
+  document.getElementById('dateTo').value   = to;
+  document.querySelectorAll('.date-preset').forEach(b =>
+    b.classList.toggle('active', b.dataset.preset === key));
+}
+
+applyPreset('30d');
+
+document.querySelectorAll('.date-preset').forEach(btn =>
+  btn.addEventListener('click', () => { applyPreset(btn.dataset.preset); applyFilters(); }));
+
+['dateFrom','dateTo'].forEach(id =>
+  document.getElementById(id).addEventListener('change', () => {
+    document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
+    applyFilters();
+  }));
+
+// ── FILTER STATE ───────────────────────────────────────────
+let selectedCategories = new Set();
+let selectedMembers    = new Set();
+
+document.querySelectorAll('#categoryChips .chip').forEach(btn =>
+  btn.addEventListener('click', () => {
+    const c = btn.dataset.category;
+    selectedCategories.has(c) ? selectedCategories.delete(c) : selectedCategories.add(c);
+    btn.classList.toggle('active');
+    applyFilters();
+  }));
+
+document.querySelectorAll('#memberChips .chip').forEach(btn =>
+  btn.addEventListener('click', () => {
+    const m = btn.dataset.member;
+    selectedMembers.has(m) ? selectedMembers.delete(m) : selectedMembers.add(m);
+    btn.classList.toggle('active');
+    applyFilters();
+  }));
+
+document.getElementById('clearFilters').addEventListener('click', () => {
+  selectedCategories.clear();
+  selectedMembers.clear();
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  applyPreset('30d');
+  applyFilters();
+});
+
+document.getElementById('applyFilters').addEventListener('click', () => {
+  closeDrawer();
+});
+
+// ── CORE FILTER ENGINE ─────────────────────────────────────
+function getFilteredTx() {
+  const from = document.getElementById('dateFrom').value;
+  const to   = document.getElementById('dateTo').value;
+  return ALL_TX.filter(tx => {
+    const okCat   = selectedCategories.size === 0 || selectedCategories.has(tx.category);
+    const okPayer = selectedMembers.size === 0    || selectedMembers.has(tx.payer);
+    const okFrom  = !from || tx.date >= from;
+    const okTo    = !to   || tx.date <= to;
+    return okCat && okPayer && okFrom && okTo;
+  });
+}
+
+function applyFilters() {
+  const filtered = getFilteredTx();
+  updateFilterBadge(filtered.length);
+  updateTransactionsList(filtered);
+  updateOverview(filtered);
+  if (chartsCreated) updateCharts(filtered);
+  if (!document.getElementById('tab-explore').classList.contains('hidden')) {
+    exRender();
+  }
+}
+
+// ── FILTER BADGE ───────────────────────────────────────────
+function updateFilterBadge(count) {
+  const btn = document.getElementById('filterToggle');
+  const active = count < ALL_TX.length ||
+                 selectedCategories.size > 0 ||
+                 selectedMembers.size > 0;
+  btn.classList.toggle('border-brand', active);
+  btn.classList.toggle('text-brand-light', active);
+  btn.classList.toggle('border-zinc-700', !active);
+  btn.classList.toggle('text-zinc-400', !active);
+}
+
+// ── UPDATE: TRANSACTIONS TAB ───────────────────────────────
+function updateTransactionsList(filtered) {
+  const filteredUuids = new Set(filtered.map(t => t.uuid));
+  let visible = 0;
+
+  document.querySelectorAll('.transaction-item').forEach(item => {
+    const show = filteredUuids.has(item.dataset.uuid);
+    item.classList.toggle('hidden', !show);
+    if (show) visible++;
+  });
+
+  const countEl = document.getElementById('txCount');
+  if (countEl) countEl.textContent = visible + ' transaction' + (visible !== 1 ? 's' : '');
+
+  const list = document.getElementById('transactionsList');
+  const existing = list.querySelector('.empty-filter-state');
+  if (visible === 0 && document.querySelectorAll('.transaction-item').length > 0) {
+    if (!existing) {
+      const el = document.createElement('div');
+      el.className = 'empty-filter-state text-center py-12 text-zinc-600';
+      el.innerHTML = '<span class="text-3xl block mb-2">🔍</span><p class="text-sm">No matches</p>';
+      list.appendChild(el);
+    }
+  } else if (existing) existing.remove();
+}
+
+// ── UPDATE: OVERVIEW TAB ───────────────────────────────────
+function updateOverview(filtered) {
+  const amounts = filtered.map(t => t.amount);
+  const total   = amounts.reduce((a, b) => a + b, 0);
+  const avg     = amounts.length ? total / amounts.length : 0;
+  const largest = amounts.length ? Math.max(...amounts) : 0;
+
+  document.getElementById('stat-total').textContent   = '₹' + Math.round(total).toLocaleString();
+  document.getElementById('stat-count').textContent   = amounts.length;
+  document.getElementById('stat-avg').textContent     = '₹' + Math.round(avg).toLocaleString();
+  document.getElementById('stat-largest').textContent = '₹' + Math.round(largest).toLocaleString();
+
+  // Member spending bars
+  const memberTotals = {};
+  filtered.forEach(tx => { memberTotals[tx.payer] = (memberTotals[tx.payer] || 0) + tx.amount; });
+  const sortedMembers = Object.entries(memberTotals).sort((a,b) => b[1]-a[1]);
+  const maxSpend = sortedMembers[0]?.[1] || 1;
+
+  const memberBars = document.getElementById('memberBars');
+  memberBars.innerHTML = sortedMembers.length === 0
+    ? '<p class="text-sm text-zinc-600 text-center py-4">No data</p>'
+    : sortedMembers.map(([name, amount], i) => `
+        <div class="flex items-center gap-3">
+          <span class="text-xl w-8 text-center">${MEMBER_EMOJIS[i % MEMBER_EMOJIS.length]}</span>
+          <div class="flex-1 min-w-0">
+            <div class="flex justify-between items-baseline mb-1">
+              <span class="text-sm font-semibold truncate">${name}</span>
+              <span class="text-sm font-bold text-brand-light ml-2 flex-shrink-0">₹${Math.round(amount).toLocaleString()}</span>
+            </div>
+            <div class="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+              <div class="h-full bg-brand rounded-full" style="width:${((amount/maxSpend)*100).toFixed(1)}%"></div>
+            </div>
+          </div>
+        </div>`).join('');
+
+  // Category bars
+  const catTotals = {};
+  filtered.forEach(tx => { catTotals[tx.category] = (catTotals[tx.category] || 0) + tx.amount; });
+  const sortedCats = Object.entries(catTotals).sort((a,b) => b[1]-a[1]);
+  const totalCat = sortedCats.reduce((s,[,v]) => s+v, 0);
+
+  const categoryBars = document.getElementById('categoryBars');
+  categoryBars.innerHTML = sortedCats.length === 0
+    ? '<p class="text-sm text-zinc-600 text-center py-4">No data</p>'
+    : sortedCats.slice(0,6).map(([cat, amount], i) => {
+        const name  = CAT_NAME[cat] || cat.replace(/_/g,' ');
+        const pct   = totalCat > 0 ? (amount/totalCat*100).toFixed(1) : 0;
+        const color = PALETTE[i % PALETTE.length];
+        return `
+          <div class="flex items-center gap-3">
+            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${color}"></span>
+            <div class="flex-1 min-w-0">
+              <div class="flex justify-between items-baseline mb-1">
+                <span class="text-sm truncate">${name}</span>
+                <span class="text-sm font-bold text-zinc-300 ml-2 flex-shrink-0">₹${Math.round(amount).toLocaleString()}</span>
+              </div>
+              <div class="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                <div class="h-full rounded-full" style="width:${pct}%;background:${color}"></div>
+              </div>
+            </div>
+            <span class="text-[11px] text-zinc-500 flex-shrink-0 w-10 text-right">${Math.round(pct)}%</span>
+          </div>`;
+      }).join('');
+}
+
+// ── UPDATE: CHARTS TAB ─────────────────────────────────────
+function updateCharts(filtered) {
+  // Timeline — group by month
+  const monthly = {};
+  filtered.forEach(tx => {
+    const key = tx.date.slice(0, 7);
+    monthly[key] = (monthly[key] || 0) + tx.amount;
+  });
+  const sortedMonths = Object.entries(monthly).sort((a,b) => a[0].localeCompare(b[0])).slice(-12);
+  const tlLabels = sortedMonths.map(([k]) => {
+    const [y, m] = k.split('-');
+    return new Date(y, m-1).toLocaleString('default', { month:'short', year:'2-digit' });
+  });
+  const tlData = sortedMonths.map(([,v]) => Math.round(v));
+
+  timelineChart.data.labels = tlLabels;
+  timelineChart.data.datasets[0].data = tlData;
+  timelineChart.update();
+
+  // Donut — by category
+  const catTotals = {};
+  filtered.forEach(tx => { catTotals[tx.category] = (catTotals[tx.category] || 0) + tx.amount; });
+  const sortedCats = Object.entries(catTotals).sort((a,b) => b[1]-a[1]).slice(0,7);
+
+  donutChart.data.labels   = sortedCats.map(([k]) => CAT_NAME[k] || k.replace(/_/g,' '));
+  donutChart.data.datasets[0].data = sortedCats.map(([,v]) => Math.round(v));
+  donutChart.update();
+
+  const filteredTotal = filtered.reduce((s,t) => s+t.amount, 0);
+  const donutTotal = document.getElementById('donutTotal');
+  if (donutTotal) donutTotal.textContent = '₹' + Math.round(filteredTotal).toLocaleString();
+
+  const legend = document.getElementById('donutLegend');
+  if (legend) {
+    legend.innerHTML = sortedCats.map(([k], i) => `
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${PALETTE[i%PALETTE.length]}"></span>
+        <span class="text-xs text-zinc-400 truncate">${CAT_NAME[k] || k.replace(/_/g,' ')}</span>
+      </div>`).join('');
+  }
+
+  // Member bar
+  const memberTotals = {};
+  filtered.forEach(tx => { memberTotals[tx.payer] = (memberTotals[tx.payer] || 0) + tx.amount; });
+  const sortedM = Object.entries(memberTotals).sort((a,b) => b[1]-a[1]);
+
+  memberChart.data.labels = sortedM.map(([n]) => n);
+  memberChart.data.datasets[0].data = sortedM.map(([,v]) => Math.round(v));
+  memberChart.data.datasets[0].backgroundColor = sortedM.map((_, i) => PALETTE[i%PALETTE.length]);
+  memberChart.update();
+}
+
+// ── LAZY CHART INIT ────────────────────────────────────────
+function ensureChartsCreated() {
+  if (chartsCreated) return;
+  chartsCreated = true;
+
+  Chart.defaults.color = '#a1a1aa';
+  Chart.defaults.borderColor = '#3f3f46';
+
+  const yAxis = {
+    grid: { color: 'rgba(63,63,70,0.6)' },
+    ticks: { font:{size:10}, callback: v => '₹'+(v>=1000?(v/1000).toFixed(1)+'k':v) },
+  };
+
+  timelineChart = new Chart(document.getElementById('timelineChart'), {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      data: [], borderColor:'#8b5cf6', backgroundColor:'rgba(139,92,246,0.12)',
+      borderWidth:2, pointRadius:3, pointBackgroundColor:'#8b5cf6', fill:true, tension:0.4,
+    }]},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales: { x:{ grid:{display:false}, ticks:{font:{size:10}} }, y: yAxis },
+    },
+  });
+
+  donutChart = new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: { labels: [], datasets: [{
+      data: [], backgroundColor: PALETTE, borderColor:'#27272a', borderWidth:3, hoverBorderWidth:0,
+    }]},
+    options: {
+      responsive:true, maintainAspectRatio:false, cutout:'68%',
+      plugins: {
+        legend: { display:false },
+        tooltip: { callbacks: { label: ctx => ' ₹'+ctx.parsed.toLocaleString() } },
+      },
+    },
+  });
+
+  memberChart = new Chart(document.getElementById('memberChart'), {
+    type: 'bar',
+    data: { labels: [], datasets: [{
+      data: [], backgroundColor: PALETTE, borderRadius:8, borderSkipped:false,
+    }]},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales: { x:{ grid:{display:false}, ticks:{font:{size:11}} }, y: yAxis },
+    },
+  });
+}
+
+// ── EXPLORE: D3 SUNBURST + TREEMAP ────────────────────────
+const EX = {
+  group: 'cat-person',
+  viz:   'sunburst',
+
+  EMOJI: {
+    FOOD:'🍽️', FOOD_AND_DRINK:'🍔', HOUSING:'🏠', ENTERTAINMENT:'🎮',
+    TRANSPORT:'🚕', SHOPPING:'🛍️', UTILITIES:'💡', TRAVEL:'✈️',
+    GROCERIES:'🛒', HEALTHCARE:'🏥', GENERAL:'💸', UNCATEGORIZED:'📝',
+    RENT_AND_UTILITIES:'🏠', OTHER:'✋', INSURANCE:'🧯',
+  },
+
+  GROUPS: {
+    'cat-person':   [tx => tx.category, tx => tx.payer],
+    'person-cat':   [tx => tx.payer,    tx => tx.category],
+    'month-cat':    [tx => tx.date.slice(0,7), tx => tx.category],
+    'month-person': [tx => tx.date.slice(0,7), tx => tx.payer],
+  },
+
+  label(key) {
+    if (CAT_NAME[key]) return CAT_NAME[key];
+    if (/^\d{4}-\d{2}$/.test(key)) {
+      const [y,m] = key.split('-');
+      return new Date(y, m-1).toLocaleString('default',{month:'short',year:'numeric'});
+    }
+    return key;
+  },
+
+  fmt(n) { return '₹' + Math.round(n).toLocaleString(); },
+
+  buildHierarchy(txList) {
+    const [l1fn, l2fn] = EX.GROUPS[EX.group];
+    const childMap1 = new Map();
+    txList.forEach(tx => {
+      const k1 = l1fn(tx), k2 = l2fn(tx);
+      if (!childMap1.has(k1)) childMap1.set(k1, new Map());
+      const m2 = childMap1.get(k1);
+      if (!m2.has(k2)) m2.set(k2, []);
+      m2.get(k2).push(tx);
+    });
+    return {
+      name: 'All',
+      children: [...childMap1.entries()].map(([k1, m2]) => ({
+        name: k1,
+        children: [...m2.entries()].map(([k2, txs]) => ({
+          name: k2,
+          children: txs.map(tx => ({ name: tx.description, value: tx.amount, tx })),
+        })),
+      })),
+    };
+  },
+};
+
+// ── D3 LAZY LOAD ──────────────────────────────────────────
+let d3Loaded = false;
+function loadD3(cb) {
+  if (d3Loaded) { cb(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+  s.onload = () => { d3Loaded = true; cb(); };
+  document.head.appendChild(s);
+}
+
+function exRender() {
+  loadD3(() => {
+    if (EX.viz === 'sunburst') renderSunburst();
+    else renderTreemap();
+    exUpdateBreadcrumb([]);
+    document.getElementById('exploreDetail').classList.add('hidden');
+  });
+}
+
+// ── SUNBURST ───────────────────────────────────────────────
+function renderSunburst() {
+  const wrap = document.getElementById('sunburstWrap');
+  wrap.innerHTML = '';
+
+  const W = Math.min(wrap.clientWidth || 500, 540);
+  const R = W / 2;
+
+  const color = d3.scaleOrdinal(PALETTE);
+  const root  = d3.hierarchy(EX.buildHierarchy(getFilteredTx()))
+    .sum(d => d.tx ? d.value : 0)
+    .sort((a,b) => b.value - a.value);
+
+  d3.partition().size([2*Math.PI, R])(root);
+
+  const arc = d3.arc()
+    .startAngle(d => d.x0).endAngle(d => d.x1)
+    .padAngle(d => Math.min((d.x1-d.x0)/2, 0.005))
+    .padRadius(R/2)
+    .innerRadius(d => d.y0)
+    .outerRadius(d => d.y1 - 2);
+
+  const svg = d3.create('svg')
+    .attr('viewBox', `${-R} ${-R} ${W} ${W}`)
+    .attr('width','100%').attr('height', W)
+    .style('font','10px sans-serif');
+
+  const defs = svg.append('defs');
+  const glowFilter = defs.append('filter').attr('id','glow');
+  glowFilter.append('feGaussianBlur').attr('stdDeviation','4').attr('result','blur');
+  const fm = glowFilter.append('feMerge');
+  fm.append('feMergeNode').attr('in','blur');
+  fm.append('feMergeNode').attr('in','SourceGraphic');
+
+  function topColor(d) {
+    let n=d; while(n.depth>1) n=n.parent;
+    return n.depth===0 ? '#3f3f46' : color(n.data.name);
+  }
+
+  let current = root;
+
+  root.each(d => d.current = {x0:d.x0,x1:d.x1,y0:d.y0,y1:d.y1});
+
+  const path = svg.append('g')
+    .selectAll('path')
+    .data(root.descendants().filter(d => d.depth && d.x1-d.x0 > 0.001))
+    .join('path')
+    .attr('fill', d => topColor(d))
+    .attr('fill-opacity', d => [0,0.85,0.55,0.3][d.depth] ?? 0.2)
+    .attr('d', d => arc(d.current))
+    .style('cursor', d => d.depth<3 ? 'pointer' : 'default')
+    .on('mouseover', function(e,d) {
+      d3.select(this).attr('fill-opacity',1).style('filter','url(#glow)');
+      const pct = ((d.value/(current.value||1))*100).toFixed(1);
+      tip.style('opacity',1).html(`<b>${EX.label(d.data.name)}</b><br>${EX.fmt(d.value)} &nbsp;·&nbsp; ${pct}%`);
+    })
+    .on('mousemove', e => {
+      const r = wrap.getBoundingClientRect();
+      tip.style('left',(e.clientX-r.left+10)+'px').style('top',(e.clientY-r.top-36)+'px');
+    })
+    .on('mouseout', function(e,d) {
+      d3.select(this).attr('fill-opacity',[0,0.85,0.55,0.3][d.depth]??0.2).style('filter',null);
+      tip.style('opacity',0);
+    })
+    .on('click', (e,d) => {
+      if (d.depth >= 3) { exShowLeaf(d.data.tx); return; }
+      zoomTo(d);
+    });
+
+  const label = svg.append('g').attr('pointer-events','none').attr('text-anchor','middle')
+    .selectAll('text')
+    .data(root.descendants().filter(d => d.depth && d.x1-d.x0 > 0.07))
+    .join('text')
+    .attr('fill','#e4e4e7')
+    .attr('font-size', d => d.depth===1?11:9)
+    .attr('font-weight', d => d.depth===1?'600':'400')
+    .attr('transform', d => labelTransform(d.current))
+    .attr('dy','0.35em')
+    .text(d => {
+      const s = EX.label(d.data.name);
+      const max = d.depth===1?12:7;
+      return s.length>max ? s.slice(0,max-1)+'…' : s;
+    });
+
+  function labelTransform(d) {
+    const x = (d.x0+d.x1)/2*180/Math.PI;
+    const y = (d.y0+d.y1)/2;
+    return `rotate(${x-90}) translate(${y},0) rotate(${x<180?0:180})`;
+  }
+
+  // Center text
+  const cg = svg.append('g').attr('text-anchor','middle').attr('pointer-events','none');
+  const cVal = cg.append('text').attr('fill','#a78bfa').attr('font-size',18).attr('font-weight','700')
+    .attr('dy','-0.15em').text(EX.fmt(root.value));
+  const cHint = cg.append('text').attr('fill','#52525b').attr('font-size',9)
+    .attr('dy','1.2em').text('tap a slice');
+
+  // Tooltip
+  const tip = d3.select(wrap).append('div')
+    .style('position','absolute').style('pointer-events','none')
+    .style('background','#1c1c1f').style('border','1px solid #3f3f46')
+    .style('border-radius','10px').style('padding','8px 12px')
+    .style('font-size','11px').style('color','#e4e4e7')
+    .style('white-space','nowrap').style('z-index','99').style('opacity',0);
+
+  function zoomTo(p) {
+    current = current === p ? (p.parent || root) : p;
+    const crumbs = [];
+    let n = current;
+    while (n && n !== root) { crumbs.unshift(EX.label(n.data.name)); n = n.parent; }
+    exUpdateBreadcrumb(crumbs);
+
+    cVal.text(EX.fmt(current.value));
+    cHint.text(current===root ? 'tap a slice' : '← tap center to go back');
+
+    const txs = [];
+    current.each(d => { if (d.data.tx) txs.push(d.data.tx); });
+    if (txs.length && current !== root) exShowDetail(txs, EX.label(current.data.name));
+    else document.getElementById('exploreDetail').classList.add('hidden');
+
+    root.each(d => d.target = {
+      x0: Math.max(0, Math.min(1,(d.x0-current.x0)/(current.x1-current.x0))) * 2*Math.PI,
+      x1: Math.max(0, Math.min(1,(d.x1-current.x0)/(current.x1-current.x0))) * 2*Math.PI,
+      y0: Math.max(0, d.y0 - current.depth*(R/root.height)),
+      y1: Math.max(0, d.y1 - current.depth*(R/root.height)),
+    });
+
+    const t = svg.transition().duration(700).ease(d3.easeExpInOut);
+    path.transition(t)
+      .tween('data', d => { const i=d3.interpolate(d.current,d.target); return v => d.current=i(v); })
+      .attrTween('d', d => () => arc(d.current));
+    label.transition(t)
+      .attrTween('transform', d => {
+        const i=d3.interpolate(d.current,d.target); return v => labelTransform(i(v));
+      })
+      .attr('fill-opacity', d => +(d.target.x1-d.target.x0>0.07));
+  }
+
+  // Click center to go back
+  cg.style('cursor','pointer').on('click', () => { if(current!==root) zoomTo(current); });
+
+  wrap.appendChild(svg.node());
+}
+
+// ── TREEMAP ────────────────────────────────────────────────
+function renderTreemap() {
+  const wrap = document.getElementById('treemapWrap');
+  wrap.innerHTML = '';
+  const W = wrap.clientWidth || 600;
+  const H = Math.max(340, Math.round(W * 0.58));
+
+  const color = d3.scaleOrdinal(PALETTE);
+  const root  = d3.hierarchy(EX.buildHierarchy(getFilteredTx()))
+    .sum(d => d.tx ? d.value : 0)
+    .sort((a,b) => b.value - a.value);
+
+  d3.treemap().size([W,H]).paddingOuter(3).paddingTop(18).paddingInner(2).round(true)(root);
+
+  const svg = d3.create('svg')
+    .attr('viewBox',`0 0 ${W} ${H}`)
+    .attr('width','100%').attr('height',H)
+    .style('font','10px sans-serif');
+
+  function topColor(d) {
+    let n=d; while(n.depth>1) n=n.parent;
+    return n.depth===0 ? '#18181b' : color(n.data.name);
+  }
+
+  const node = svg.selectAll('g')
+    .data(root.descendants())
+    .join('g').attr('transform',d=>`translate(${d.x0},${d.y0})`);
+
+  node.append('rect')
+    .attr('width',  d => Math.max(0,d.x1-d.x0))
+    .attr('height', d => Math.max(0,d.y1-d.y0))
+    .attr('fill',   d => topColor(d))
+    .attr('fill-opacity', d => [0,0.8,0.5,0.3][d.depth]??0.2)
+    .attr('rx',5)
+    .style('cursor','pointer')
+    .on('mouseover', function(e,d) {
+      d3.select(this).attr('fill-opacity',0.95).attr('stroke','#a78bfa').attr('stroke-width',1.5);
+    })
+    .on('mouseout', function(e,d) {
+      d3.select(this).attr('fill-opacity',[0,0.8,0.5,0.3][d.depth]??0.2).attr('stroke',null);
+    })
+    .on('click', (e,d) => {
+      const txs = [];
+      d.each(n => { if(n.data.tx) txs.push(n.data.tx); });
+      if (txs.length) exShowDetail(txs, EX.label(d.data.name));
+    });
+
+  // Name label
+  node.filter(d => d.depth>0 && d.x1-d.x0>32 && d.y1-d.y0>16)
+    .append('text').attr('x',4).attr('y',d=>d.depth===1?14:10)
+    .attr('fill','#e4e4e7').attr('pointer-events','none')
+    .attr('font-size',d=>d.depth===1?11:9).attr('font-weight',d=>d.depth===1?'700':'400')
+    .text(d => {
+      const s=EX.label(d.data.name), max=Math.floor((d.x1-d.x0)/6.5);
+      return s.length>max ? s.slice(0,max-1)+'…' : s;
+    });
+
+  // Value label
+  node.filter(d => d.depth>0 && d.x1-d.x0>52 && d.y1-d.y0>28)
+    .append('text').attr('x',4).attr('y',d=>d.depth===1?26:20)
+    .attr('fill','#a1a1aa').attr('font-size',9).attr('pointer-events','none')
+    .text(d => EX.fmt(d.value));
+
+  wrap.appendChild(svg.node());
+}
+
+// ── DETAIL HELPERS ─────────────────────────────────────────
+function exUpdateBreadcrumb(parts) {
+  const el = document.getElementById('exploreBreadcrumb');
+  el.innerHTML = ['All',...parts].map((p,i,a) => {
+    const last = i===a.length-1;
+    return `<span class="${last?'text-zinc-200 font-semibold':'text-zinc-500'}">${p}</span>`
+          +(last?'':'<span class="text-zinc-700 mx-1">›</span>');
+  }).join('');
+}
+
+function exShowLeaf(tx) {
+  exShowDetail([tx], tx.description);
+}
+
+function exShowDetail(txs, title) {
+  const panel = document.getElementById('exploreDetail');
+  document.getElementById('exploreDetailTitle').textContent =
+    `${title}  ·  ${txs.length} tx  ·  ${EX.fmt(txs.reduce((s,t)=>s+t.amount,0))}`;
+  const sorted = [...txs].sort((a,b)=>b.amount-a.amount).slice(0,25);
+  document.getElementById('exploreDetailList').innerHTML = sorted.map(tx=>`
+    <div class="flex items-center gap-3">
+      <span class="text-lg flex-shrink-0">${EX.EMOJI[tx.category]||'💸'}</span>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-medium text-zinc-200 truncate">${tx.description}</p>
+        <p class="text-xs text-zinc-500">${tx.payer} · ${tx.date}</p>
+      </div>
+      <span class="text-sm font-bold text-brand-light flex-shrink-0">${EX.fmt(tx.amount)}</span>
+    </div>`).join('')
+    + (txs.length>25 ? `<p class="text-xs text-zinc-600 text-center pt-1">+${txs.length-25} more</p>` : '');
+  panel.classList.remove('hidden');
+}
+
+// ── VIZ TOGGLE ─────────────────────────────────────────────
+function setViz(v) {
+  EX.viz = v;
+  const isSun = v==='sunburst';
+  document.getElementById('sunburstWrap').classList.toggle('hidden', !isSun);
+  document.getElementById('treemapWrap').classList.toggle('hidden',  isSun);
+  ['vizSunburst','vizTreemap'].forEach(id => {
+    const active = (id==='vizSunburst') === isSun;
+    const btn = document.getElementById(id);
+    btn.classList.toggle('border-brand',     active);
+    btn.classList.toggle('bg-brand/20',      active);
+    btn.classList.toggle('text-brand-light', active);
+    btn.classList.toggle('border-zinc-700',  !active);
+    btn.classList.toggle('bg-surface-card',  !active);
+    btn.classList.toggle('text-zinc-400',    !active);
+  });
+  exRender();
+}
+document.getElementById('vizSunburst').addEventListener('click', () => setViz('sunburst'));
+document.getElementById('vizTreemap').addEventListener('click',  () => setViz('treemap'));
+
+// ── GROUP SELECTOR ─────────────────────────────────────────
+document.querySelectorAll('.group-btn').forEach(btn =>
+  btn.addEventListener('click', () => {
+    EX.group = btn.dataset.group;
+    document.querySelectorAll('.group-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.group===EX.group));
+    exRender();
+  }));
+document.querySelector('.group-btn[data-group="cat-person"]')?.classList.add('active');
+
+// ── BOOT ──────────────────────────────────────────────────
+applyFilters();
+</script>
+</body>
+</html>

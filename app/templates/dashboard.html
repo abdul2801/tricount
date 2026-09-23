@@ -99,13 +99,23 @@
       <span class="text-brand text-xl">💜</span>
       <span class="font-semibold tracking-tight text-zinc-100">{{ summary.title or 'Tricount' }}</span>
     </div>
-    <button id="filterToggle"
-      class="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 bg-surface-card border border-zinc-700 px-3 py-1.5 rounded-full hover:border-brand transition-colors">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2"/>
-      </svg>
-      Filters
-    </button>
+    <div class="flex items-center gap-2">
+      <button id="refreshBtn" title="Refresh data"
+        class="w-8 h-8 flex items-center justify-center rounded-full text-zinc-500
+               hover:text-zinc-200 hover:bg-zinc-800 transition-all">
+        <svg id="refreshIcon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+      </button>
+      <button id="filterToggle"
+        class="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 bg-surface-card border border-zinc-700 px-3 py-1.5 rounded-full hover:border-brand transition-colors">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2"/>
+        </svg>
+        Filters
+      </button>
+    </div>
   </div>
 </header>
 
@@ -1037,6 +1047,8 @@ function renderSunburst() {
   d3.partition().size([2 * Math.PI, R])(root);
   root.each(d => d.current = { x0:d.x0, x1:d.x1, y0:d.y0, y1:d.y1 });
 
+  let current = root;  // declared early — used by topColor and buildLegend
+
   // Fixed radii — inner ring depth-1, outer ring depth-2
   const R1 = INNER;           // inner edge of ring 1
   const R2 = INNER + (R - INNER) * 0.52;  // boundary between ring 1 & 2
@@ -1050,11 +1062,19 @@ function renderSunburst() {
     .outerRadius(d => d.depth === 1 ? R2 - 2 : R3);
 
   function topColor(d) {
-    let n = d; while (n.depth > 1) n = n.parent;
-    return n.depth === 0 ? '#3f3f46' : color(n.data.name);
+    // At root view: color by depth-1 group
+    // When zoomed into a depth-1 node: color depth-2 children distinctly
+    if (current === root || current.depth === 0) {
+      let n = d; while (n.depth > 1) n = n.parent;
+      return n.depth === 0 ? '#3f3f46' : EX.colorFor(n.data.name);
+    } else {
+      // Zoomed into a group — color by depth-2 child
+      let n = d;
+      while (n.depth > 2) n = n.parent;
+      if (n.depth <= 1) return EX.colorFor(current.data.name);
+      return EX.colorFor(current.data.name + '::' + n.data.name);
+    }
   }
-
-  let highlighted = null;
 
   // ── Outer flex container ──────────────────────────────────
   const shell = document.createElement('div');
@@ -1106,7 +1126,6 @@ function renderSunburst() {
     .attr('fill','transparent').style('cursor','pointer');
   centerHit.on('click', () => { if (current !== root) zoomTo(current); });
 
-  let current = root;
 
   // ── Legend ──────────────────────────────────────────────
   function buildLegend(node) {
@@ -1449,6 +1468,20 @@ document.querySelectorAll('.group-btn').forEach(btn =>
     exRender();
   }));
 document.querySelector('.group-btn[data-group="cat-person"]')?.classList.add('active');
+
+// ── REFRESH BUTTON ────────────────────────────────────────
+document.getElementById('refreshBtn').addEventListener('click', async () => {
+  const icon = document.getElementById('refreshIcon');
+  icon.style.transition = 'transform 0.6s ease';
+  icon.style.transform  = 'rotate(360deg)';
+  setTimeout(() => { icon.style.transition = ''; icon.style.transform = ''; }, 650);
+  try {
+    await fetch('/api/cache/clear', { method: 'POST' });
+    window.location.reload();
+  } catch(e) {
+    window.location.reload();
+  }
+});
 
 // ── BOOT ──────────────────────────────────────────────────
 applyFilters();

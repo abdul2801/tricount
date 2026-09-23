@@ -12,4 +12,5 @@ DEBUG = os.getenv("FLASK_ENV") == "development"
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-key-change-in-production")
 
 # Cache settings (in seconds)
-CACHE_TTL = 300  # 5 minutes cache for tricount data
+# Long TTL since we bust manually via /api/cache/clear or the refresh button
+CACHE_TTL = 1800  # 30 minutes

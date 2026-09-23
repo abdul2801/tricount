@@ -61,7 +61,9 @@ class TricountService:
     def clear_cache(self) -> None:
         self._cache.clear()
         self._cache_times.clear()
-        logger.info("Cache cleared")
+        # Re-join the tricount so the transaction list is fetched fresh from the API
+        self.tricount = self.client.join_tricount(TRICOUNT_ID)
+        logger.info("Cache cleared and tricount re-fetched")
 
     # ── Raw transactions (source of truth) ───────────────────────────────────
 
@@ -70,20 +72,24 @@ class TricountService:
         if cached is not None:
             return cached
 
+        # Re-join to get latest data from the API
+        self.tricount = self.client.join_tricount(TRICOUNT_ID)
+
         result = []
         for tx in self.tricount.transactions:
-            payer_name = "Unknown"
-            allocations = []
+            # Payer is always the owner of the transaction
+            owner  = self.tricount.get_member_by_uuid(tx.membership_uuid_owner)
+            payer_name = owner.display_name if owner else "Unknown"
 
+            # Allocations — everyone's share (raw amounts are negative, take abs)
+            allocations = []
             if hasattr(tx, "allocations") and tx.allocations:
                 for alloc in tx.allocations:
                     member = self.tricount.get_member_by_uuid(alloc.membership_uuid)
                     name   = member.display_name if member else "Unknown"
-                    amt    = alloc.amount.as_float
-                    if amt < 0:
-                        payer_name = name
-                    elif amt > 0:
-                        allocations.append({"member": name, "amount": abs(amt)})
+                    amt    = abs(alloc.amount.as_float)
+                    if amt > 0:
+                        allocations.append({"member": name, "amount": amt})
 
             result.append({
                 "id":          tx.id,

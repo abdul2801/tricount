@@ -84,3 +84,13 @@ def api_analytics():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@main_bp.route("/api/cache/clear", methods=["POST"])
+def api_cache_clear():
+    """Clear the cache and force a fresh fetch on next request."""
+    try:
+        get_service().clear_cache()
+        return jsonify({"ok": True, "message": "Cache cleared"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

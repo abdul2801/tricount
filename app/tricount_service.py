@@ -4,268 +4,206 @@ import logging
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 from tricount import load_client
-from dataclasses import asdict
 from config import CREDENTIALS_PATH, TRICOUNT_ID, CACHE_TTL
 
 logger = logging.getLogger(__name__)
 
+CATEGORY_MAP = {
+    "TRAVEL":            "✈️ Travel",
+    "ENTERTAINMENT":     "🎮 Entertainment",
+    "GROCERIES":         "🛒 Groceries",
+    "HEALTHCARE":        "🏥 Healthcare",
+    "INSURANCE":         "🧯 Insurance",
+    "RENT_AND_UTILITIES":"🏠 Rent & Utilities",
+    "FOOD_AND_DRINK":    "🍔 Food & Drink",
+    "SHOPPING":          "🛍️ Shopping",
+    "TRANSPORT":         "🚕 Transport",
+    "OTHER":             "✋ Other",
+    "UNCATEGORIZED":     "📝 Uncategorized",
+    "FOOD":              "🍽️ Food",
+    "HOUSING":           "🏠 Housing",
+    "GENERAL":           "💸 General",
+    "UTILITIES":         "💡 Utilities",
+}
+
+CATEGORY_EMOJI = {
+    "FOOD": "🍽️", "FOOD_AND_DRINK": "🍔", "HOUSING": "🏠",
+    "ENTERTAINMENT": "🎮", "TRANSPORT": "🚕", "SHOPPING": "🛍️",
+    "UTILITIES": "💡", "TRAVEL": "✈️", "GROCERIES": "🛒",
+    "HEALTHCARE": "🏥", "GENERAL": "💸", "UNCATEGORIZED": "📝",
+    "RENT_AND_UTILITIES": "🏠", "OTHER": "✋", "INSURANCE": "🧯",
+}
+
 
 class TricountService:
-    """Service to interact with Tricount API."""
-    
+    """Service to interact with Tricount API with TTL caching."""
+
     def __init__(self):
-        """Initialize the service with client and cache."""
-        self.client = load_client(str(CREDENTIALS_PATH))
+        self.client   = load_client(str(CREDENTIALS_PATH))
         self.tricount = self.client.join_tricount(TRICOUNT_ID)
-        self._cache = {}
-        self._cache_times = {}
-    
-    def _is_cache_valid(self, key: str) -> bool:
-        """Check if cache entry is still valid."""
-        if key not in self._cache_times:
-            return False
-        is_valid = time.time() - self._cache_times[key] < CACHE_TTL
-        if is_valid:
-            logger.debug(f"Cache HIT for {key}")
-        else:
-            logger.debug(f"Cache EXPIRED for {key}")
-        return is_valid
-    
-    def _get_cached(self, key: str) -> Optional[Any]:
-        """Get cached value if valid."""
-        if self._is_cache_valid(key):
+        self._cache:       Dict[str, Any]   = {}
+        self._cache_times: Dict[str, float] = {}
+
+    # ── Cache helpers ─────────────────────────────────────────────────────────
+
+    def _get(self, key: str) -> Optional[Any]:
+        if key in self._cache_times and time.time() - self._cache_times[key] < CACHE_TTL:
+            logger.debug("Cache HIT: %s", key)
             return self._cache[key]
+        logger.debug("Cache MISS: %s", key)
         return None
-    
-    def _set_cache(self, key: str, value: Any) -> None:
-        """Set cache with timestamp."""
-        self._cache[key] = value
+
+    def _set(self, key: str, value: Any) -> Any:
+        self._cache[key]       = value
         self._cache_times[key] = time.time()
-        logger.debug(f"Cached {key} for {CACHE_TTL}s")
-    
-    def get_members(self) -> List[Dict[str, Any]]:
-        """Get all members in the tricount."""
-        cached = self._get_cached("members")
-        if cached is not None:
-            return cached
-        
-        members = self.tricount.members
-        result = [
-            {
-                "id": m.id,
-                "uuid": m.uuid,
-                "name": m.display_name,
-                "status": m.status,
-            }
-            for m in members
-        ]
-        self._set_cache("members", result)
-        return result
-    
-    def get_transactions(self) -> List[Dict[str, Any]]:
-        """Get all transactions in the tricount."""
-        cached = self._get_cached("transactions")
-        if cached is not None:
-            return cached
-        
-        transactions = self.tricount.transactions
-        result = []
-        
-        # Emoji mapping for categories
-        category_emoji = {
-            "FOOD": "🍽️",
-            "HOUSING": "🏠",
-            "ENTERTAINMENT": "🎮",
-            "TRANSPORT": "🚗",
-            "SHOPPING": "🛍️",
-            "UTILITIES": "💡",
-            "GENERAL": "💸",
-            "UNCATEGORIZED": "📝",
-        }
-        
-        for tx in transactions:
-            # Get payer (who paid - negative amount in allocations)
-            payer_name = "Unknown"
-            
-            # Find who paid by looking for negative amount in allocations
-            if hasattr(tx, 'allocations') and tx.allocations:
-                for allocation in tx.allocations:
-                    if allocation.amount.as_float < 0:  # Payer has negative amount
-                        member = self.tricount.get_member_by_uuid(allocation.membership_uuid)
-                        if member:
-                            payer_name = member.display_name
-                            break
-            
-            # Get all allocations (who it was split between)
-            allocations = []
-            if hasattr(tx, 'allocations') and tx.allocations:
-                for allocation in tx.allocations:
-                    member = self.tricount.get_member_by_uuid(allocation.membership_uuid)
-                    member_name = member.display_name if member else "Unknown"
-                    amount = abs(allocation.amount.as_float)
-                    if amount > 0:  # Only include positive amounts (who it was for)
-                        allocations.append({
-                            "member": member_name,
-                            "amount": amount,
-                        })
-            
-            emoji = category_emoji.get(tx.category, "💸")
-            
-            tx_dict = {
-                "id": tx.id,
-                "uuid": tx.uuid,
-                "amount": abs(tx.amount.as_float),
-                "currency": tx.amount.currency,
-                "description": tx.description,
-                "category": tx.category,
-                "emoji": emoji,
-                "date": str(tx.date)[:10],  # normalize to YYYY-MM-DD
-                "payer": payer_name,
-                "allocations": allocations,
-            }
-            
-            result.append(tx_dict)
-        
-        # Sort by date descending (newest first)
-        result.sort(key=lambda x: x["date"], reverse=True)
-        self._set_cache("transactions", result)
-        return result
-    
-    def get_summary(self) -> Dict[str, Any]:
-        """Get summary of the tricount."""
-        return {
-            "title": self.tricount.title,
-            "id": self.tricount.id,
-            "currency": self.tricount.currency,
-            "category": self.tricount.category,
-            "is_archived": self.tricount.is_archived,
-            "member_count": len(self.get_members()),
-            "transaction_count": len(self.get_transactions()),
-        }
-    
+        return value
+
     def clear_cache(self) -> None:
-        """Clear all cached data."""
         self._cache.clear()
         self._cache_times.clear()
+        logger.info("Cache cleared")
 
+    # ── Raw transactions (source of truth) ───────────────────────────────────
+
+    def get_transactions(self) -> List[Dict[str, Any]]:
+        cached = self._get("transactions")
+        if cached is not None:
+            return cached
+
+        result = []
+        for tx in self.tricount.transactions:
+            payer_name = "Unknown"
+            allocations = []
+
+            if hasattr(tx, "allocations") and tx.allocations:
+                for alloc in tx.allocations:
+                    member = self.tricount.get_member_by_uuid(alloc.membership_uuid)
+                    name   = member.display_name if member else "Unknown"
+                    amt    = alloc.amount.as_float
+                    if amt < 0:
+                        payer_name = name
+                    elif amt > 0:
+                        allocations.append({"member": name, "amount": abs(amt)})
+
+            result.append({
+                "id":          tx.id,
+                "uuid":        tx.uuid,
+                "amount":      abs(tx.amount.as_float),
+                "currency":    tx.amount.currency,
+                "description": tx.description,
+                "category":    tx.category or "UNCATEGORIZED",
+                "emoji":       CATEGORY_EMOJI.get(tx.category, "💸"),
+                "date":        str(tx.date)[:10],
+                "payer":       payer_name,
+                "allocations": allocations,
+            })
+
+        result.sort(key=lambda x: x["date"], reverse=True)
+        return self._set("transactions", result)
+
+    # ── Derived — all computed from cached transactions ───────────────────────
+
+    def get_members(self) -> List[Dict[str, Any]]:
+        cached = self._get("members")
+        if cached is not None:
+            return cached
+        result = [
+            {"id": m.id, "uuid": m.uuid, "name": m.display_name, "status": m.status}
+            for m in self.tricount.members
+        ]
+        return self._set("members", result)
 
     def get_member_spending(self) -> List[Dict[str, Any]]:
-        """Get total spending per member."""
-        cached = self._get_cached("member_spending")
+        cached = self._get("member_spending")
         if cached is not None:
             return cached
-        
-        spending = defaultdict(float)
-        for tx in self.tricount.transactions:
-            amount = abs(tx.amount.as_float)
-            # Add spending for each person who paid
-            owner = self.tricount.get_member_by_uuid(tx.membership_uuid_owner)
-            if owner:
-                spending[owner.display_name] += amount
-        
+
+        spending: Dict[str, float] = defaultdict(float)
+        for tx in self.get_transactions():          # use cached transactions
+            spending[tx["payer"]] += tx["amount"]
+
         result = [
-            {"name": name, "amount": amount}
-            for name, amount in sorted(spending.items(), key=lambda x: x[1], reverse=True)
+            {"name": name, "amount": round(amt, 2)}
+            for name, amt in sorted(spending.items(), key=lambda x: x[1], reverse=True)
         ]
-        self._set_cache("member_spending", result)
-        return result
-    
+        return self._set("member_spending", result)
+
     def get_category_breakdown(self) -> List[Dict[str, Any]]:
-        """Get spending breakdown by category."""
-        cached = self._get_cached("category_breakdown")
+        cached = self._get("category_breakdown")
         if cached is not None:
             return cached
-        
-        category_map = {
-            "TRAVEL": "🛏 Travel",
-            "ENTERTAINMENT": "🎤 Entertainment",
-            "GROCERIES": "🛒 Groceries",
-            "HEALTHCARE": "🦷 Healthcare",
-            "INSURANCE": "🧯 Insurance",
-            "RENT_AND_UTILITIES": "🏠 Rent & Utilities",
-            "FOOD_AND_DRINK": "🍔 Food & Drink",
-            "SHOPPING": "🛍 Shopping",
-            "TRANSPORT": "🚕 Transport",
-            "OTHER": "✋ Other",
-            "UNCATEGORIZED": "📝 Uncategorized",
-        }
-        
-        spending = defaultdict(float)
-        for tx in self.tricount.transactions:
-            amount = abs(tx.amount.as_float)
-            category = tx.category or "UNCATEGORIZED"
-            spending[category] += amount
-        
+
+        spending: Dict[str, float] = defaultdict(float)
+        for tx in self.get_transactions():          # use cached transactions
+            spending[tx["category"]] += tx["amount"]
+
         result = [
             {
-                "name": category_map.get(cat, cat),
-                "amount": amount,
+                "name":     CATEGORY_MAP.get(cat, cat.replace("_", " ").title()),
+                "amount":   round(amt, 2),
                 "category": cat,
             }
-            for cat, amount in sorted(spending.items(), key=lambda x: x[1], reverse=True)
+            for cat, amt in sorted(spending.items(), key=lambda x: x[1], reverse=True)
         ]
-        self._set_cache("category_breakdown", result)
-        return result
-    
+        return self._set("category_breakdown", result)
+
     def get_statistics(self) -> Dict[str, Any]:
-        """Get various statistics about the tricount."""
-        cached = self._get_cached("statistics")
+        cached = self._get("statistics")
         if cached is not None:
             return cached
-        
-        transactions = self.tricount.transactions
-        if not transactions:
-            return {
-                "total_spent": 0,
-                "average_transaction": 0,
-                "largest_transaction": 0,
-                "number_of_transactions": 0,
-            }
-        
-        amounts = [abs(tx.amount.as_float) for tx in transactions]
-        
-        result = {
-            "total_spent": sum(amounts),
-            "average_transaction": sum(amounts) / len(amounts) if amounts else 0,
-            "largest_transaction": max(amounts) if amounts else 0,
-            "number_of_transactions": len(amounts),
-        }
-        self._set_cache("statistics", result)
-        return result
 
+        txs = self.get_transactions()               # use cached transactions
+        if not txs:
+            return self._set("statistics", {
+                "total_spent": 0, "average_transaction": 0,
+                "largest_transaction": 0, "number_of_transactions": 0,
+            })
+
+        amounts = [t["amount"] for t in txs]
+        return self._set("statistics", {
+            "total_spent":          round(sum(amounts), 2),
+            "average_transaction":  round(sum(amounts) / len(amounts), 2),
+            "largest_transaction":  round(max(amounts), 2),
+            "number_of_transactions": len(amounts),
+        })
 
     def get_monthly_spending(self) -> List[Dict[str, Any]]:
-        """Get total spending per month (last 12 months), sorted oldest→newest."""
-        cached = self._get_cached("monthly_spending")
+        cached = self._get("monthly_spending")
         if cached is not None:
             return cached
 
-        from collections import defaultdict
-        monthly = defaultdict(float)
+        monthly: Dict[str, float] = defaultdict(float)
+        for tx in self.get_transactions():          # use cached transactions
+            monthly[tx["date"][:7]] += tx["amount"]
 
-        for tx in self.tricount.transactions:
-            # tx.date may be a date object or an ISO string like "2026-03-15"
-            date = tx.date
-            if isinstance(date, str):
-                key = date[:7]  # "YYYY-MM"
-            else:
-                key = f"{date.year}-{date.month:02d}"
-            monthly[key] += abs(tx.amount.as_float)
+        result = [
+            {"month": k, "amount": round(v, 2)}
+            for k, v in sorted(monthly.items())[-12:]
+        ]
+        return self._set("monthly_spending", result)
 
-        # Sort and take last 12 months
-        sorted_months = sorted(monthly.items())[-12:]
+    def get_summary(self) -> Dict[str, Any]:
+        cached = self._get("summary")
+        if cached is not None:
+            return cached
+        result = {
+            "title":             self.tricount.title,
+            "id":                self.tricount.id,
+            "currency":          self.tricount.currency,
+            "category":          self.tricount.category,
+            "is_archived":       self.tricount.is_archived,
+            "member_count":      len(self.get_members()),
+            "transaction_count": len(self.get_transactions()),
+        }
+        return self._set("summary", result)
 
-        result = [{"month": k, "amount": round(v, 2)} for k, v in sorted_months]
-        self._set_cache("monthly_spending", result)
-        return result
 
+# ── Singleton ─────────────────────────────────────────────────────────────────
 
-# Singleton instance
-_service = None
+_service: Optional[TricountService] = None
 
 
 def get_service() -> TricountService:
-    """Get or create the service instance."""
     global _service
     if _service is None:
         _service = TricountService()

@@ -22,6 +22,7 @@ def index():
         categories.sort()
         
         monthly_spending = service.get_monthly_spending()
+        balances = service.get_balances()
 
         return render_template(
             "dashboard.html",
@@ -33,6 +34,7 @@ def index():
             statistics=statistics,
             categories=categories,
             monthly_spending=monthly_spending,
+            balances=balances,
         )
     except Exception as e:
         return render_template("error.html", error=str(e)), 500
@@ -82,6 +84,16 @@ def api_analytics():
             "statistics": service.get_statistics(),
             "monthly_spending": service.get_monthly_spending(),
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@main_bp.route("/api/balances")
+def api_balances():
+    """API endpoint for balances and settlement data."""
+    try:
+        service = get_service()
+        return jsonify(service.get_balances())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

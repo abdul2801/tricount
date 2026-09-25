@@ -91,6 +91,12 @@ class TricountService:
                     if amt > 0:
                         allocations.append({"member": name, "amount": amt})
 
+            # A transaction is "personal" if the sole beneficiary is the payer themselves
+            is_personal = (
+                len(allocations) == 1
+                and allocations[0]["member"] == payer_name
+            )
+
             result.append({
                 "id":          tx.id,
                 "uuid":        tx.uuid,
@@ -102,6 +108,7 @@ class TricountService:
                 "date":        str(tx.date)[:10],
                 "payer":       payer_name,
                 "allocations": allocations,
+                "is_personal": is_personal,
             })
 
         result.sort(key=lambda x: x["date"], reverse=True)
@@ -124,14 +131,26 @@ class TricountService:
         if cached is not None:
             return cached
 
-        spending: Dict[str, float] = defaultdict(float)
-        for tx in self.get_transactions():          # use cached transactions
-            spending[tx["payer"]] += tx["amount"]
+        group_spend:    Dict[str, float] = defaultdict(float)
+        personal_spend: Dict[str, float] = defaultdict(float)
 
+        for tx in self.get_transactions():          # use cached transactions
+            if tx.get("is_personal"):
+                personal_spend[tx["payer"]] += tx["amount"]
+            else:
+                group_spend[tx["payer"]] += tx["amount"]
+
+        all_names = set(group_spend) | set(personal_spend)
         result = [
-            {"name": name, "amount": round(amt, 2)}
-            for name, amt in sorted(spending.items(), key=lambda x: x[1], reverse=True)
+            {
+                "name":     name,
+                "amount":   round(group_spend[name] + personal_spend[name], 2),
+                "group":    round(group_spend[name], 2),
+                "personal": round(personal_spend[name], 2),
+            }
+            for name in all_names
         ]
+        result.sort(key=lambda x: x["amount"], reverse=True)
         return self._set("member_spending", result)
 
     def get_category_breakdown(self) -> List[Dict[str, Any]]:
@@ -163,14 +182,20 @@ class TricountService:
             return self._set("statistics", {
                 "total_spent": 0, "average_transaction": 0,
                 "largest_transaction": 0, "number_of_transactions": 0,
+                "personal_total": 0, "personal_count": 0,
             })
 
-        amounts = [t["amount"] for t in txs]
+        group_txs    = [t for t in txs if not t.get("is_personal")]
+        personal_txs = [t for t in txs if t.get("is_personal")]
+
+        group_amounts = [t["amount"] for t in group_txs] or [0]
         return self._set("statistics", {
-            "total_spent":          round(sum(amounts), 2),
-            "average_transaction":  round(sum(amounts) / len(amounts), 2),
-            "largest_transaction":  round(max(amounts), 2),
-            "number_of_transactions": len(amounts),
+            "total_spent":            round(sum(group_amounts), 2),
+            "average_transaction":    round(sum(group_amounts) / max(len(group_amounts), 1), 2),
+            "largest_transaction":    round(max(group_amounts), 2),
+            "number_of_transactions": len(group_txs),
+            "personal_total":         round(sum(t["amount"] for t in personal_txs), 2),
+            "personal_count":         len(personal_txs),
         })
 
     def get_monthly_spending(self) -> List[Dict[str, Any]]:
@@ -187,6 +212,43 @@ class TricountService:
             for k, v in sorted(monthly.items())[-12:]
         ]
         return self._set("monthly_spending", result)
+
+    def get_balances(self) -> Dict[str, Any]:
+        """Return per-member balances and minimal settlement list, computed locally."""
+        cached = self._get("balances")
+        if cached is not None:
+            return cached
+
+        # Ensure fresh transaction data
+        self.get_transactions()
+
+        # Library helper: iterates tricount.transactions, returns name -> net balance
+        # positive = owed money back, negative = owes money
+        raw_balances = self.client.get_balances(self.tricount)
+
+        members = []
+        for name, bal in raw_balances.items():
+            members.append({"name": name, "balance": round(bal, 2)})
+        members.sort(key=lambda x: x["balance"], reverse=True)
+
+        # Greedy minimum-transactions settlement
+        creditors = [[m["name"], m["balance"]]  for m in members if m["balance"] >  0.005]
+        debtors   = [[m["name"], -m["balance"]] for m in members if m["balance"] < -0.005]
+        creditors.sort(key=lambda x: x[1], reverse=True)
+        debtors.sort(  key=lambda x: x[1], reverse=True)
+
+        settlements = []
+        ci = di = 0
+        while ci < len(creditors) and di < len(debtors):
+            pay = round(min(creditors[ci][1], debtors[di][1]), 2)
+            settlements.append({"from": debtors[di][0], "to": creditors[ci][0], "amount": pay})
+            creditors[ci][1] = round(creditors[ci][1] - pay, 2)
+            debtors[di][1]   = round(debtors[di][1]   - pay, 2)
+            if creditors[ci][1] < 0.005: ci += 1
+            if debtors[di][1]   < 0.005: di += 1
+
+        result = {"members": members, "settlements": settlements}
+        return self._set("balances", result)
 
     def get_summary(self) -> Dict[str, Any]:
         cached = self._get("summary")
